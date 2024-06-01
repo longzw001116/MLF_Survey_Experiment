@@ -1,0 +1,164 @@
+import cv2
+for i in range(27):
+    a = psf
+    a = a[i,:,:] / torch.max(a[i,:,:])
+    a = ((a*255).numpy()).astype(int)
+    cv2.imwrite('./temp/{}.jpg'.format(i), a)
+
+
+from PIL import Image
+import torchvision.transforms as transforms
+to_pil = transforms.ToPILImage()
+for i in range(4):
+    xx = img[i,:,:,:]
+    xxx = to_pil(xx)
+    xxx.save("./temp/gt{}.png".format(i))
+
+
+for i in range(4):
+  for j in range(9):
+    xx = blur[i,j,:,:,:]
+    xxx = to_pil(xx)
+    xxx.save("./blur/blur{}{}.png".format(i,j))
+
+for i in range(4):
+  for j in range(9):
+    xx = deconv_img[i,j,:,:,:]
+    xxx = to_pil(xx)
+    xxx.save("./deconv_hb/deconv{}{}.png".format(i,j))
+
+
+
+nn_v1:
+"""
+1. 在输入分辨率810验证通过
+
+"""
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, activation=nn.LeakyReLU(), apply_instnorm=True, padding='same'):
+        super(ConvBlock, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding=padding)
+        self.activation = activation
+        self.apply_instnorm = apply_instnorm
+        if apply_instnorm:
+            self.instnorm = nn.InstanceNorm2d(out_channels)
+    
+    def forward(self, x):
+        x = self.conv(x)
+        if self.apply_instnorm:
+            x = self.instnorm(x)
+        if self.activation is not None:
+            x = self.activation(x)
+        return x
+
+
+class ConvTranspBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride, activation=nn.LeakyReLU(), apply_instnorm=True):
+        super(ConvTranspBlock, self).__init__()
+        self.conv_transp = nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride=stride)
+        self.activation = activation
+        self.apply_instnorm = apply_instnorm
+    
+    def forward(self, x):
+        x = self.conv_transp(x)
+        if self.activation is not None:
+            x = self.activation(x)
+        return x
+
+
+class feat_extract(nn.Module):
+    def __init__(self, input_ch):
+        super(feat_extract, self).__init__()
+        self.LReLU = nn.LeakyReLU()
+        
+        self.down_l0_1 = ConvBlock(input_ch, 15, 7, 1, self.LReLU, apply_instnorm=False)
+        self.down_l0_2 = ConvBlock(15, 15, 7, 1, self.LReLU, apply_instnorm=False)
+        
+        self.down_l1_1 = ConvBlock(15, 30, 5, 2, self.LReLU, apply_instnorm=False, padding=2)
+        self.down_l1_2 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.down_l1_3 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        
+        self.down_l2_1 = ConvBlock(30, 60, 5, 2, self.LReLU, apply_instnorm=False, padding=2)
+        self.down_l2_2 = ConvBlock(60, 60, 3, 1, self.LReLU, apply_instnorm=False)
+        self.down_l2_3 = ConvBlock(60, 60, 3, 1, self.LReLU, apply_instnorm=False)
+        
+        # 4x
+        self.conv_l2_k0 = ConvBlock(60, 60, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l2_k1 = ConvBlock(60, 60, 3, 1, self.LReLU, apply_instnorm=False)    
+        self.conv_l2_k2 = ConvBlock(120, 60, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l2_k3 = ConvBlock(60, 60, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l2_k4 = ConvBlock(60, 60, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l2_k5 = ConvBlock(60, 60, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_transp1 = ConvTranspBlock(60, 30, 2, 2, self.LReLU, apply_instnorm=False)
+        
+        # 2x
+        self.conv_l1_k0 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l1_k1 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)       
+        self.conv_l1_k2 = ConvBlock(60, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l1_k3 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l1_k4 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l1_k5 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l1_k6 = ConvBlock(60, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l1_k7 = ConvBlock(30, 30, 3, 1, self.LReLU, apply_instnorm=False)
+        self.conv_transp2 = ConvTranspBlock(30, 15, 2, 2, self.LReLU, apply_instnorm=False)
+        
+        # 1x
+        self.conv_l0_k0 = ConvBlock(15, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l0_k1 = ConvBlock(15, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l0_k2 = ConvBlock(30, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l0_k3 = ConvBlock(15, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l0_k4 = ConvBlock(15, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l0_k5 = ConvBlock(15, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l0_k6 = ConvBlock(30, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.conv_l0_k7 = ConvBlock(15, 15, 5, 1, self.LReLU, apply_instnorm=False)
+        self.final_conv = ConvBlock(15, 3, 5, 1, self.LReLU, apply_instnorm=False)
+
+
+    def forward(self, img):
+        down_l0 = self.down_l0_1(img)
+        down_l0 = self.down_l0_2(down_l0)
+        
+        down_l1 = self.down_l1_1(down_l0)
+        down_l1 = self.down_l1_2(down_l1)
+        down_l1 = self.down_l1_3(down_l1)
+        
+        down_l2 = self.down_l2_1(down_l1)
+        down_l2 = self.down_l2_2(down_l2)
+        down_l2 = self.down_l2_3(down_l2)
+        
+        # 4x
+        conv_l2_0 = self.conv_l2_k0(down_l2)
+        conv_l2_1 = self.conv_l2_k1(conv_l2_0)  
+        conv_l2_2 = self.conv_l2_k2(torch.cat([down_l2, conv_l2_1], dim=1))
+        conv_l2_3 = self.conv_l2_k3(conv_l2_2)
+        conv_l2_4 = self.conv_l2_k4(conv_l2_3)
+        conv_l2_5 = self.conv_l2_k5(conv_l2_4)
+        up1 = self.conv_transp1(conv_l2_5)
+
+        # 2x
+        conv_l1_0 = self.conv_l1_k0(down_l1)
+        conv_l1_1 = self.conv_l1_k1(conv_l1_0)
+        conv_l1_2 = self.conv_l1_k2(torch.cat([down_l1, conv_l1_1], dim=1))
+        conv_l1_3 = self.conv_l1_k3(conv_l1_2)
+        conv_l1_4 = self.conv_l1_k4(conv_l1_3)
+        conv_l1_5 = self.conv_l1_k5(conv_l1_4)
+        if (up1.size(-1) != conv_l1_5.size(-1)):
+            up1 = interpolate(up1, size=(conv_l1_5.size(-2), conv_l1_5.size(-1)))
+        conv_l1_6 = self.conv_l1_k6(torch.cat([up1, conv_l1_5], dim=1))
+        conv_l1_7 = self.conv_l1_k7(conv_l1_6)
+        up2 = self.conv_transp2(conv_l1_7)
+        
+        # 1x
+        conv_l0_0 = self.conv_l0_k0(down_l0)
+        conv_l0_1 = self.conv_l0_k1(conv_l0_0)
+        conv_l0_2 = self.conv_l0_k2(torch.cat([down_l0, conv_l0_1], dim=1))
+        conv_l0_3 = self.conv_l0_k3(conv_l0_2)
+        conv_l0_4 = self.conv_l0_k4(conv_l0_3)
+        conv_l0_5 = self.conv_l0_k5(conv_l0_4)
+        if (up2.size(-1) != conv_l0_5.size(-1)):
+            interpolate(up2, size=(conv_l0_5.size(-2), conv_l0_5.size(-1)))
+        conv_l0_6 = self.conv_l0_k6(torch.cat([up2, conv_l0_5], dim=1))
+        conv_l0_7 = self.conv_l0_k7(conv_l0_6)
+        
+        out = self.final_conv(conv_l0_7)
+        return out
