@@ -15,6 +15,38 @@ PIL
 ```
 
 
+## Results
+<center>
+
+| Design | MSE | PSNR(dB) | SSIM | LPIPS |
+| --------- | ---- | ---- | ---- | ---- |
+| Hyperboloid_1 | 1.49e-2 | 18.89 | 0.52 | 0.59 |
+| Hyperboloid_2 | 1.74e-2 | 18.01 | 0.19 | 0.64 |
+| Hyperboloid_3 | 9.83e-3 | 20.54 | 0.39 | 0.65 |
+| Cubic_86 $\pi$ | 1.01e-2 | 20.60 | 0.43 | 0.60 |
+| Cubic_55 $\pi$  | 9.77e-3 | 20.71 | 0.40 | 0.61 |
+| Log_asphere_1 | 9.92e-3 | 20.26 | 0.27 | 0.63 |
+| Log_asphere_2 | 1.82e-3 | 17.86 | 0.44 | 0.64 |
+| **E2EMLF** | **7.22e-3** | **22.36** | **0.65** | **0.52** |
+| | | | |
+
+</center>
+
+
++ See the following picture for our end-to-end design MLF (E2EMLF) with other methods:
+
+![Result](/images/result.png)
+
+
++ Further imaging quality improvement is required. See defects in the zoom-in result as follows:
+
+<center>
+
+![Zoom_in_result](/images/zoom_in_result.png)
+
+</center>
+
+
 ## Desciption
 1. train_compare.py
     - Test for the comparision methods (hyperboloid, cubic, log-asphere, etc)
