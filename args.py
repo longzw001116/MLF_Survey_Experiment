@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument('--train_dir'  , type=str, default='./data/train', help='Directory of training input images')
     parser.add_argument('--eval_dir'   , type=str, default='./data/val', help='Directory of evaling input images')
     parser.add_argument('--test_dir'   , type=str, default='./data/test', help='Directory of testing input images')
-    parser.add_argument('--train_batch_size', type=int, default=10)
+    parser.add_argument('--train_batch_size', type=int, default=4)
 
     # Saving and logging arguments
     parser.add_argument('--save_dir'   , type=str, default='./save', help='Directory for saving ckpts and TensorBoard file')
@@ -34,6 +34,8 @@ def parse_args():
     # Convolution arguments
     # parser.add_argument('--do_taper'     , type=str2bool, default=True, help='Activate edge tapering')
     parser.add_argument('--normalize_psf', type=str2bool, default=True, help='True to normalize PSF')
+    parser.add_argument('--theta_base'   , type=str, default = '-10.0,0.0,10.0,-10.0,0.0,10.0,-10.0,0.0,10.0', help='Field angles')
+    parser.add_argument('--phi_base'   , type=str, default = '10.0,10.0,10.0,0.0,0.0,0.0,-10.0,-10.0,-10.0', help='Field angles')
 
     parser.add_argument('--lb', type=float, default=19.40E-3, help='lower bound of depth range')
     parser.add_argument('--ub', type=float, default=26.78E-3, help='upper bound of depth range')
@@ -58,5 +60,7 @@ def parse_args():
     parser.add_argument('--nn_lr'       , type=float, default=1e-4, help='Deconvolution learning rate')
 
     args = parser.parse_args()
+    args.theta_base = [float(w) for w in args.theta_base.split(',')]
+    args.phi_base = [float(w) for w in args.phi_base.split(',')]
     print(args)
     return args    

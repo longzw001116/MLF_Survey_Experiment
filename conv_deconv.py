@@ -15,16 +15,34 @@ def psf2otf(psf):
     return otf
 
 
-def conv_fn(image, psf):
+# def conv_fn(image, psf):
+#     """
+#     psf: (9,3,810,810)
+#     image: (b,3,810,810)
+#     blur: (b,9,3,810,810)
+#     """
+#     otf = psf2otf(psf).unsqueeze(0)                 # (1,9,3,810,810)
+#     image = image.unsqueeze(1)                      # (b,1,3,810,810)
+#     blur = ifft2(fft2(image) * otf)                 # (b,9,3,810,810)
+#     return torch.abs(blur)
+
+
+def conv_fn(image, psf, pad_size=100):
     """
     psf: (9,3,810,810)
     image: (b,3,810,810)
     blur: (b,9,3,810,810)
+    pad_size: 填充的大小
     """
+
+    image = torch.nn.functional.pad(image, (pad_size, pad_size, pad_size, pad_size), mode='constant', value=0)
+    psf = torch.nn.functional.pad(psf, (pad_size, pad_size, pad_size, pad_size), mode='constant', value=0)
+
     otf = psf2otf(psf).unsqueeze(0)                 # (1,9,3,810,810)
     image = image.unsqueeze(1)                      # (b,1,3,810,810)
+
     blur = ifft2(fft2(image) * otf)                 # (b,9,3,810,810)
-    return torch.abs(blur)
+    return torch.abs(blur)[:, :, :, pad_size:-pad_size, pad_size:-pad_size]
 
 
 def sensor_noise(input, std_gaussian=1E-5):

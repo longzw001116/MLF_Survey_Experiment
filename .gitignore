@@ -12,5 +12,7 @@ repos
 results/
 save/
 temp/
+blur/
 test_depth/
 temp.jpg
+test.ipynb
