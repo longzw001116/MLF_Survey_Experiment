@@ -10,7 +10,6 @@ def initialize_params(args):
     params['device'] = DEVICE
 
     params['nanometers'] = 1E-9
-    params['degrees']    = np.pi / 180
 
     params['upsample'] = 1
     params['normalize_psf'] = args.normalize_psf
@@ -46,30 +45,14 @@ def initialize_params(args):
     ya = np.linspace(0, pixelsY - 1, pixelsY) * dy 
     ya = ya - np.mean(ya) # center y axis at zero
     [y_mesh, x_mesh] = np.meshgrid(ya, xa, indexing='ij')       # 注意坐标系
-    params['x_mesh'] = torch.tensor(x_mesh, device=params['device'])
-    params['y_mesh'] = torch.tensor(y_mesh, device=params['device'])
+    params['x_mesh'] = x_mesh
+    params['y_mesh'] = y_mesh
 
-    # Wavelengths
+    # Wavelengths and field angles.
     lam0 = params['nanometers'] * torch.tensor(np.tile(lambda_base, params['arraySize']), dtype=torch.float32, device=params['device'])  # [606,511,462,606,511,462,...]
     lam0 = lam0.unsqueeze(1).unsqueeze(2)
     lam0 = lam0.repeat(1, pixelsX, pixelsY)
     params['lam0'] = lam0   # (27,1429,1429)
-
-    # Field angle 
-    theta_base = args.theta_base
-    phi_base = args.phi_base
-
-    theta_base_tensor = torch.tensor(np.repeat(theta_base, 3), dtype=torch.float32, device=params['device'])
-    theta = params['degrees'] * theta_base_tensor
-    theta = theta.unsqueeze(1).unsqueeze(2)  
-    theta = theta.repeat(1, pixelsX, pixelsY)  
-    params['theta'] = theta
-
-    phi_tensor = torch.tensor(np.repeat(phi_base, 3), dtype=torch.float32, device=params['device'])
-    phi = params['degrees'] * phi_tensor
-    phi = phi.unsqueeze(1).unsqueeze(2)  
-    phi = phi.repeat(1, pixelsX, pixelsY) 
-    params['phi'] = phi
 
     # Propagation parameters
     params['propagator'] = make_propagator(params, params['v'])
@@ -92,7 +75,6 @@ def initialize_params(args):
     return params
 
 
-@torch.no_grad()
 def define_input_fields(params):
     # Define the cartesian cross section
     input_fields = torch.zeros(size=params['x_mesh'].shape, device=params['device'])
@@ -100,7 +82,7 @@ def define_input_fields(params):
     light = torch.tensor([[0, 1, 0]], device=params['device'])
     light = light.T * light
     input_fields[n//2-1:n//2+2, n//2-1:n//2+2] = light
-    return input_fields.unsqueeze(0)
+    return input_fields.type(torch.complex64).unsqueeze(0)
 
 
 def duty_cycle_from_phase(phase, params):
@@ -122,8 +104,8 @@ def phase_from_duty_and_lambda(duty, params):
 
 
 def metasurface_phase_generator(fs, params):
-    x_mesh = params['x_mesh'].unsqueeze(0)
-    y_mesh = params['y_mesh'].unsqueeze(0)
+    x_mesh = torch.tensor(params['x_mesh'], device=params['device']).unsqueeze(0)
+    y_mesh = torch.tensor(params['y_mesh'], device=params['device']).unsqueeze(0)
     fs_tensor = fs.unsqueeze(1).unsqueeze(2)
     fs_tensor = fs_tensor.repeat(1, x_mesh.size(1), x_mesh.size(2))
 
@@ -154,14 +136,13 @@ def metasurface_phase_generator(fs, params):
 
 def define_metasurface(fs, params):
     phase_def = metasurface_phase_generator(fs, params)
-    # phase_def = phase_def.to(torch.complex64)
-    amp = (params['x_mesh'] ** 2 + params['y_mesh'] ** 2) < (params['pixels_aperture'] * params['Lx'] / 2.0) ** 2
+    phase_def = phase_def.to(torch.complex64)
+    amp = torch.tensor(((params['x_mesh'] ** 2 + params['y_mesh'] ** 2) < (params['pixels_aperture'] * params['Lx'] / 2.0) ** 2), device=params['device'])
     I = 1.0 / torch.sum(amp)
     E_amp = torch.sqrt(I)
-    return amp * E_amp * torch.exp(1j * phase_def).to(torch.complex64)
+    return amp * E_amp * torch.exp(1j * phase_def)
 
 
-@torch.no_grad()
 def make_propagator(params, distance):
 
     batchSize = params['batchSize']
@@ -184,23 +165,10 @@ def make_propagator(params, distance):
     k_z_arg = torch.square(k) - (torch.square(k_x) + torch.square(k_y))
     k_z = torch.sqrt(k_z_arg)           # 里面为有什么有虚数，只有462波长时才不为虚数，去看NC的值会不会这样(答：也会)
 
-    theta = params['theta'][:, 0, 0]
-    theta = theta.unsqueeze(1).unsqueeze(2) 
-    x0 = torch.tan(theta) * params['f']
-    x0 = x0.repeat(1, 2 * samp - 1, 2 * samp - 1)  
-    # x0 = x0.to(torch.complex64) 
-
-    phi = params['phi'][:, 0, 0]
-    phi = phi.unsqueeze(1).unsqueeze(2)
-    y0 = torch.tan(phi) * params['f']
-    y0 = y0.repeat(1, 2 * samp - 1, 2 * samp - 1)  
-    # y0 = y0.to(torch.complex64)
-
     # propagator_arg = 1j * (k_z * params['v'] + k_x * x0 + k_y * y0)     # TODO 后面这两项是导致乱跑的原因
     # propagator_arg = 1j * (k_z * params['f'])       # Airy斑更小
-   
-    # propagator_arg = 1j * (k_z * distance)       # TODO: 使用这个看起来正确了很多
-    propagator_arg = 1j * (k_z * distance + k_x * x0 + k_y * y0)
+
+    propagator_arg = 1j * (k_z * distance)       # TODO: 使用这个看起来正确了很多
     propagator = torch.exp(propagator_arg)
 
     return propagator
@@ -229,19 +197,15 @@ def propTF(u1, L, wavelength, z, params):
     return u2
 
 
-@torch.no_grad()
 def propagate_first(field, distance, params):
     B, n, n = field.shape
     field = F.pad(field, ((n-1)//2, n-1-(n-1)//2, (n-1)//2, n-1-(n-1)//2)) 
     L = params['pitch'] * (2*n-2)
     wavelength = params['lam0'][:,0:1,0:1]
-    theta = params['theta'][:, 0:1, 0:1]
-    phi = params['phi'][:, 0:1, 0:1]
     z = distance
     out = propTF(field, L, wavelength, z, params)
     out = out[:, (n-1)//2:-(n-1)//2, (n-1)//2:-(n-1)//2]
-    phase_def = 2 * torch.pi / wavelength * (torch.sin(theta) * params['x_mesh'] + torch.sin(phi) * params['y_mesh'])
-    return out * torch.exp(1j * phase_def).to(torch.complex64)
+    return out
 
 
 def propagate_second(field, params):
